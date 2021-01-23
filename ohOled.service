@@ -1,0 +1,12 @@
+[Unit]
+Description=OLED Display Service
+
+[Service]
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/python3 /home/jean/dev/myoled/raspdac_oled_main.py
+StandardOutput=null
+Type=simple
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
