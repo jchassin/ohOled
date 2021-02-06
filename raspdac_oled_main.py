@@ -158,8 +158,8 @@ class LoopPeriod() :
     # Asservissement en fin de boucle
     def adjust(self) :
         loop_end = float(time.time())
-        #loop_period = (loop_end - self.loop_time)
-        loop_sleep = self.loop_period_target - (loop_end - self.loop_time)
+        loop_period = (loop_end - self.loop_time)
+        loop_sleep = self.loop_period_target - loop_period
         # print("loop_sleep =",loop_sleep)
         if loop_sleep < 0.0 :
             loop_sleep = 0.0
@@ -182,7 +182,6 @@ try:
     mpd_server_link = 'KO'                  # initialisation de l'indicateur de l'état de la connexion avec le serveur MPD
     dac_input = mixer.getcontrol('INPUT')   # lecture de l'entrée sélectionnée sur la carte DAC
     first_loop = True                       # indicateur de premier passage dans la boucle principale
-    keyReceived = False
 
     # Boucle principale parcourue toutes les 0.2 secondes
     # (tant qu'il n'y a pas d'erreur !)
@@ -202,7 +201,6 @@ try:
         key, speed = telecommand.get_key()                      # Récupération touche (si appui)
         if (key != 'NO_KEY') :
             menu.info = telecommand.action(key=key, speed=speed, menu=menu.info)
-            keyReceived = True
 
         # Interrogation du mixer ALSA pour récupérer les informations de la carte DAC :
         # -> entrée sélectionnée (I2S ou SPDIF), état du "Mute" (actif ou inactif), Filtre sélectionné
@@ -218,7 +216,7 @@ try:
         # Récupération de l'entrée de la carte DAC (I2S ou SPDIF)
         dac_input_old = dac_input
         dac_input = mixer.getcontrol('INPUT')
-       	""" 
+        
         # Création / Vérification de l'état du socket avec le serveur MPD    
         # -> à la mise sous tension (first loop)
         # -> ou lorsque RuneAudio réinitialise le serveur MPD ("broken pipe")
@@ -229,27 +227,22 @@ try:
             if (first_loop != True) : time.sleep(2)
                     
         # Informations renvoyées par le serveur MPD
-        #mpd_status = mpd.getstatus()    # sauvegarde de la réponse à une requête 'status'
-        """
-        mpd_status = {'state' : 'stop', 'volume' : '42'}   # sauvegarde de la réponse à une requête 'status'
+        mpd_status = mpd.getstatus()    # sauvegarde de la réponse à une requête 'status'
+       
 
 
-        #mpd_song = mpd.getcurrentsong() # sauvegarde de la réponse à une requête 'currentsong'
-        mpd_song = 'My Song' # sauvegarde de la réponse à une requête 'currentsong'
+        mpd_song = mpd.getcurrentsong() # sauvegarde de la réponse à une requête 'currentsong'
 
         # Traitement (formatage) des données pour l'affichage
         icons['ip_type'] = icons[ip_type]                       # icône dynamique en fonction du type d'accès (filaire ou WiFi)
-        """
         icons['player_state'] = icons[mpd_status['state']]      # icône dynamqiue en fonction de l'état du player ('stop', 'play' ou 'pause')
         mpd_calc = mpd_data_processing(mpd_status, mpd_song)    # Formatage des champs à afficher dans les pages 'I2S-PLAY1' et 'I2S-PLAY2'
-        """
-        mpd_calc = '12:12'
+        
 
         # Regroupement des informations dans un dictionnaire de connecteurs (champs accessibles pour l'affichage)
         os_info = { 'hms' : hms,  'ip' : ip_adr }
         connectors = { 'icons': icons , 'info' : os_info , 'menu' : menu_screen, 'mpd_status' : mpd_status, 'mpd_song' : mpd_song, 'mpd_calc' : mpd_calc }
 
-        #connectors = { 'icons': icons , 'info' : os_info , 'menu' : menu_screen}
         
         # B) SEQUENCEUR DE SELECTION DES PAGES A AFFICHER
         #---------------------------------------------------------------------
@@ -280,7 +273,7 @@ try:
         # -> activée au bout d'une période d'inactivité
         # -> maintenue tant que les entrées I2S et SPDIF ne sont pas commutées
         # -> et tant que le player est à l'arrêt, si l'entrée I2S est active
-        elif (time_sec - sequencer.timestate >= page_inactivity) and (dac_input == dac_input_old) and (keyReceived == False) and\
+        elif (time_sec - sequencer.timestate >= page_inactivity) and (dac_input == dac_input_old) and \
              ( (dac_input != 'I2S') or (mpd_status['state'] == 'stop') ) :    
             if (sequencer.state != 'SAVER') :
                 sequencer.set(state='SAVER', time=sequencer.timestate)  # on conserve la datation du changement d'état précédent
@@ -312,7 +305,7 @@ try:
             else :
                 sequencer.hold( refresh=(time_sec != time_sec_old) )
 
-        """
+        
         # Les pages 'I2S-PLAY'
         # -> maintenues tant que la carte DAC est sur l'entrée 'I2S' et que le player n'est pas à l'arrêt
         elif (time_sec - sequencer.timestate < page_inactivity) or (sequencer.state == 'SAVER' and mpd_status['state'] != 'stop') :
@@ -332,9 +325,11 @@ try:
                     sequencer.page2display = 'I2S-PLAY2'
                 # Rafraîchissement continu des pages 'I2S-PLAY'
                 sequencer.refresh = True
-        """
+        else :
+            pass
 
         # Sortie du séquenceur
+        current_volume = mpd_status['volume']
         time_sec_old = time_sec
         first_loop = False
 
@@ -344,13 +339,10 @@ try:
             screen.affichage_page(sequencer.page2display, connectors, sequencer.resetscrolling, loop_period.loop_period_target)
 
         # Fin de l'itération
-        #current_volume = mpd_status['volume']       # mémorisation de la valeur du volume
-        current_volume =  '42' # mémorisation de la valeur du volume
-        keyReceived = False
+        current_volume = mpd_status['volume']       # mémorisation de la valeur du volume
 
         first_loop = False
-        #mpd_server_link = mpd.socket_status
-        mpd_server_link = 'Connected'
+        mpd_server_link = mpd.socket_status
 
         connectors.clear()                          # RAZ du dictionnaire des connecteurs
         loop_period.adjust()

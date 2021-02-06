@@ -85,7 +85,7 @@ mpd_currentsong_ref = {
 class MpdServer() :
     # Initialisation
     def __init__(self) :
-        self.host = 'localhost'         # Serveur Musical MPD intégré au Raspdac Midi (donc 'localhost')
+        self.host = '127.0.0.1'         # Serveur Musical MPD intégré au Raspdac Midi (donc 'localhost')
         self.port = 6600                # Port pour accéder au serveur MPD : paramètre 'port' défini dans le fichier /etc/mpd.conf
         self.bufsize = 4096             # Taille du buffer audio : paramètre 'audio_buffer_size' défini dans le fichier /etc/mpd.conf
         
@@ -126,17 +126,21 @@ class MpdServer() :
         # Extraction des champs de la réponse et sauvegarde dans un dictionnaire
         dict_answer = dict()
         lines = answer.split('\n')
+        print('recu : ', len(lines));
         i=0
         while lines[i] != 'OK' and i < len(lines)-1 :       # La 2ième condition protège contre les réponses incomplètes (reset du player)
+            print("line : ", lines[i]); 
             fields = lines[i].split(':',1);                 # 1 seul découpage au premier ":" rencontré sur la ligne
             dict_answer[fields[0]] = fields[1].lstrip()     # supprimer les espaces à gauche et sauvegarder dans le dictionnaire
             i += 1
 
         # Remplissage du dictionnaire avec les champs manquants
         if command == 'status\n' :
+            print("status");
             for key, value in mpd_status_ref.items() :
                 dict_answer[key] = dict_answer.get(key, value)
         else :
+            print("currentsong");
             for key, value in mpd_currentsong_ref.items() :
                 dict_answer[key] = dict_answer.get(key, value)
         
