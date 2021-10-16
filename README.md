@@ -14,6 +14,7 @@ Installation :
 
 Compilation openhome
 sudo apt-get install python3-pip
+
 sudo pip3 install boto3
 
 
