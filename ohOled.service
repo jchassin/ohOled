@@ -3,7 +3,7 @@ Description=OLED Display Service
 
 [Service]
 ExecStartPre=/bin/sleep 10
-ExecStart=/usr/bin/python3 /home/pi/ohOled/raspdac_oled_main.py
+ExecStart=/usr/bin/python3 /home/jean/dev/ohOled/raspdac_oled_main.py
 StandardOutput=null
 Type=simple
 Restart=always
