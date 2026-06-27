@@ -1,0 +1,3 @@
+# Debian Trixie fournit luma.oled via apt, ce qui est préférable sur Raspberry Pi.
+# Voir README.md pour les paquets système.
+Pillow>=10

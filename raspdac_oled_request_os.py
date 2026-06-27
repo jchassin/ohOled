@@ -1,70 +1,82 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# ----------------------------------------------------------------------------
-# AUDIOPHONICS - RASPDAC MINI - Gestion de l'écran OLED
-# Fonctions d'interrogation en ligne de commande (shell) du système LINUX
-# Fichier : raspdac_oled_request_os.py
-# 15 Mai 2019      : Creation
-# 02 Juin 2019     : Gestion du driver ES9038Q2M + ajout Menu Télécommande
-# ----------------------------------------------------------------------------
-# Ce fichier est utilisé par le script principal raspdac_oled_main.py
-# Ce fichier doit être installé dans le même répertoire que :
-#   -> raspdac_oled_main.py (script principal)
-#   -> raspdac_oled_request_mpd (gestion des requêtes avec le serveur MPD)
-#   -> raspdac_oled_screen_menu.py (gestion du MENU activé par télécommande)
-#   -> raspdac_oled_screen_telecommand.py (gestion de la télécommande)
-#   -> raspdac_oled_screen_display.py (affichage sur l'écran)
-#   -> raspdac_oled_screen_frames.py (définition des trames des pages)
-#   -> fonts : répertoire des polices de caractères utilisées pour l'affichage
-# ----------------------------------------------------------------------------
+"""Fonctions d’interrogation du système Linux pour ohOled.
+
+Version modernisée pour Debian Trixie : évite ifconfig/net-tools,
+limite l’usage de shell=True et retourne des chaînes propres.
+"""
+import shlex
+import subprocess
 import time
-from subprocess import Popen, PIPE
+from typing import Iterable, Sequence
 
 
-# ----------------------------------------------------------------------------
-# Commande en ligne Shell
-def shell_command(cmd) :
-    result = Popen(cmd, stdout=PIPE, shell=True)
-    output = result.communicate()[0].decode("Utf8")
-    output = output[:-1]       # suppression du saut de ligne en fin de chaîne
-    return output
+def shell_command(cmd: str | Sequence[str], timeout: float = 5.0) -> str:
+    """Exécute une commande et retourne stdout sans saut de ligne final.
+
+    Les appels historiques passaient une chaîne shell. On les conserve pour
+    compatibilité, mais les nouvelles commandes peuvent passer une liste.
+    """
+    if isinstance(cmd, str):
+        args = cmd
+        use_shell = True
+    else:
+        args = list(cmd)
+        use_shell = False
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=use_shell,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.rstrip("\n")
 
 
-# ----------------------------------------------------------------------------
-# Récupération de l'adresse IP du Raspdac Mini
-# Et détermination si le lien est Filaire ou en WiFi
-class RaspdacIP() :
-    def __init__(self) :
-        self.time_ip = float(time.time())
-        self.ip_adr, self.ip_type = self.get_ip()
+def _ipv4_for_interface(interface: str) -> str:
+    """Retourne l’adresse IPv4 d’une interface via la commande ip(8)."""
+    output = shell_command(["/usr/sbin/ip", "-4", "-o", "addr", "show", "dev", interface])
+    if not output:
+        output = shell_command(["/bin/ip", "-4", "-o", "addr", "show", "dev", interface])
+    for line in output.splitlines():
+        parts = line.split()
+        if "inet" in parts:
+            try:
+                return parts[parts.index("inet") + 1].split("/", 1)[0]
+            except (ValueError, IndexError):
+                continue
+    return ""
 
-    def get_ip(self, period=0) :
-        time_now = float(time.time())
-        if (time_now - self.time_ip >= period) :
 
-            # Commande en ligne du shell pour récupérer l'adresse filaire IP
-            cmd = "ifconfig eth0 | awk '/inet / {print $2}' | cut -d ':' -f2"
-            ip1 = shell_command(cmd)
-            
-            # Commande en ligne du shell pour récupérer l'adresse WiFi
-            cmd = "ifconfig wlan0 | awk '/inet / {print $2}' | cut -d ':' -f2"
-            ip2 = shell_command(cmd)
+class RaspdacIP:
+    def __init__(self):
+        self.time_ip = 0.0
+        self.ip_adr = "127.0.0.1"
+        self.ip_type = "broken"
+        self.get_ip()
 
-            if ip1 != '' :          # cas d'une connexion filaire
-                ip_adr = ip1
-                ip_type = 'link'
-            elif ip2 != '' :        # cas d'une connexion wifi
-                ip_adr = ip2
-                ip_type = 'wifi'
-            else :                  # pas de connexion
-                ip_adr = '127.0.0.1'    # Marqueur d'une absence de connexion
-                ip_type = 'broken'
+    def get_ip(self, period: float = 0):
+        time_now = time.monotonic()
+        if time_now - self.time_ip >= period:
+            ip1 = _ipv4_for_interface("eth0")
+            ip2 = _ipv4_for_interface("wlan0")
 
-            self.ip_adr = ip_adr
-            self.ip_type = ip_type
+            if ip1:
+                self.ip_adr = ip1
+                self.ip_type = "link"
+            elif ip2:
+                self.ip_adr = ip2
+                self.ip_type = "wifi"
+            else:
+                self.ip_adr = "127.0.0.1"
+                self.ip_type = "broken"
             self.time_ip = time_now
-
-            # delta = float(time.time()) - time_now
-            # print("get_ip : ",delta)
 
         return self.ip_adr, self.ip_type

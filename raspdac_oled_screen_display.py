@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ----------------------------------------------------------------------------
 # AUDIOPHONICS - RASPDAC MINI - Gestion de l'écran OLED
@@ -20,7 +20,6 @@
 # ============================================================================
 # IMPORT (Librairies / classes / Fonctions utilisées par ce script)
 # ============================================================================
-from __future__ import unicode_literals     # nécessaire pour Python 2
 import os
 
 from PIL import Image
@@ -34,6 +33,7 @@ from luma.core.render import canvas         # Gestion de l'affichage sur un écr
 from luma.oled.device import ssd1306        # Gestion de l'écran OLED SSD1309 (compatible SSD1306)
 
 from random import randint                  # Génération de nombre entier aléatoire
+from typing import Tuple
 
 from raspdac_oled_screen_frames import frames
 
@@ -127,7 +127,13 @@ class OledScreen() :
                         draw.line( points, fill=1, width=1 )
                         
                 elif object['type'] == 'elapsed_bar' or object['type'] == 'volume_bar' :
-                    draw.rectangle( ((object['x1'], object['y1']), (object['x2'], object['y2'])), outline=0, fill=1 )
+                    # Pillow recent est plus strict: x1/y1 doivent etre >= x0/y0.
+                    # Certaines trames (barre verticale de volume) utilisent volontairement
+                    # des coordonnees inversees pour remplir depuis le bas vers le haut.
+                    x0, x1 = sorted((int(object['x1']), int(object['x2'])))
+                    y0, y1 = sorted((int(object['y1']), int(object['y2'])))
+                    if x1 >= x0 and y1 >= y0:
+                        draw.rectangle(((x0, y0), (x1, y1)), outline=0, fill=1)
                 else : pass
 
 # -------------------------------------------------------------------------------------------------------------------------------
@@ -139,13 +145,27 @@ def make_font(name, size):
         os.path.dirname(__file__), 'fonts', name))
     return ImageFont.truetype(font_path, size)
 
+
+def text_metrics(font, text) -> Tuple[int, int, int, int]:
+    """Retourne largeur, hauteur, offset_x, offset_y avec Pillow récent.
+
+    Pillow 10+ a supprimé getsize/getoffset. getbbox est disponible sur les
+    versions modernes empaquetées par Debian Trixie.
+    """
+    if text is None:
+        text = ""
+    text = str(text)
+    bbox = font.getbbox(text)
+    left, top, right, bottom = bbox
+    return right - left, bottom - top, left, top
+
 # Construction des fontes utilisées par les différentes pages de l'écran OLED
 def fill_frames_with_builded_fonts(frames) :
     # Boucle sur les trames des pages
     for key1, frame in frames.items() :
         # Boucle sur les objets de chaque trame
         for key2, object in frame.items() :
-            if ( object.get('font_name') != None and object.get('font_name') != None) :
+            if object.get('font_name') is not None:
                     object['font'] = make_font(object['font_name'],object['font_size'])
             else :
                 pass
@@ -165,8 +185,7 @@ def justify_fields(object) :
     jy = object['justify_xy'][1]        # justification en y qui vaut 'H' pour High, 'C' pour Center ou 'B' pour Bottom
     x_in = object['x']
     y_in = object['y']
-    width , height = object['font'].getsize(object['value'])
-    offset_x, offset_y = object['font'].getoffset(object['value'])
+    width, height, offset_x, offset_y = text_metrics(object['font'], object['value'])
     t=int(jx == 'R') ; u=int(jx == 'C') ; v=int(jy =='B') ; w=int(jy == 'C')
     dx = width * (2*t+1*u) ; dy = height * (2*v + 1*w)
     x_out = x_in - int(dx/2) - offset_x/2
@@ -176,11 +195,26 @@ def justify_fields(object) :
 
 # Traitement de l'objet barre de volume
 def process_volume_bar(object) :
-    dv = float(int(object['value'])-object['value_min'])
-    dv_max = float(object['value_max']-object['value_min'])
-    dy_max = float(object['ymax']-object['ymin'])
-    yval = object['ymin'] + int(dv*dy_max/dv_max)
-    object.update( { "x1" : object['xmin'], "y1" : object['ymin'], "x2" : object['xmax'], "y2" : yval } )
+    try:
+        value = int(object.get('value', object['value_min']))
+    except (TypeError, ValueError):
+        value = int(object['value_min'])
+
+    # MPD peut retourner -1 quand le controle de volume est indisponible.
+    # On borne la valeur pour eviter des coordonnees hors cadre.
+    value = max(int(object['value_min']), min(int(object['value_max']), value))
+
+    dv = float(value - object['value_min'])
+    dv_max = float(object['value_max'] - object['value_min'])
+    if dv_max == 0:
+        yval = object['ymin']
+    else:
+        dy_max = float(object['ymax'] - object['ymin'])
+        yval = object['ymin'] + int(dv * dy_max / dv_max)
+
+    # La barre verticale est definie de bas en haut dans les trames
+    # (ymin > ymax). On conserve cette convention; le rendu normalise ensuite.
+    object.update({"x1": object['xmin'], "y1": object['ymin'], "x2": object['xmax'], "y2": yval})
     return object
 
 # Traitement de l'objet barre de temps écoulé
@@ -198,7 +232,7 @@ def process_elapsed_bar(object) :
 # Traitement de l'affichage défilant pour les champs dépassant la largeur de l'écran
 def process_scrolling(object, reset_scrolling, oled_width, loop_period) :
     text = object['value']
-    width, height = object['font'].getsize(text)
+    width, height, _, _ = text_metrics(object['font'], text)
     if ('scrolling_xmin' in object) and ('scrolling_xmax' in object) :
         scrolling_width = object['scrolling_xmax'] - object['scrolling_xmin']
     else :
@@ -207,7 +241,7 @@ def process_scrolling(object, reset_scrolling, oled_width, loop_period) :
         
     if width > scrolling_width :
         string = text + ' - '
-        width_period, height_period = object['font'].getsize(string)
+        width_period, height_period, _, _ = text_metrics(object['font'], string)
         string += text
         if reset_scrolling == True :
             xscroll = object['scrolling_xmin']
@@ -224,7 +258,7 @@ def process_scrolling(object, reset_scrolling, oled_width, loop_period) :
 
 # Traitement de l'affichage de l'objet 'saver' (point balayant l'écran)
 def process_screen_saver(object, reset_scrolling, oled_width, oled_height) :
-    width , height = object['font'].getsize(object['value'])
+    width, height, _, _ = text_metrics(object['font'], object['value'])
     if reset_scrolling != True :
         object['xj'] = randint(0, oled_width - width)
         object['yj'] = randint(0, oled_height - height)

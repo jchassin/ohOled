@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ----------------------------------------------------------------------------
 # AUDIOPHONICS - RASPDAC MINI - Gestion de l'écran OLED
@@ -92,6 +92,7 @@ class MpdServer() :
         self.socket = socket.socket(    # Construction du socket
             socket.AF_INET,             # famille d'adresses de type Internet
             socket.SOCK_STREAM )        # type du socket = TCP
+        self.socket.settimeout(3.0)
 
         self.socket_status = 'OK'       # status du socket au serveur MPD
     
@@ -102,7 +103,7 @@ class MpdServer() :
             response = self.socket.recv(self.bufsize).decode("Utf8")
             self.socket_status = 'OK'
             return response
-        except socket.error as e :
+        except OSError as e :
             # print('MpdServer.connect - socket error')
             # print(e)
             self.socket_status = 'KO'
@@ -126,21 +127,19 @@ class MpdServer() :
         # Extraction des champs de la réponse et sauvegarde dans un dictionnaire
         dict_answer = dict()
         lines = answer.split('\n')
-        print('recu : ', len(lines));
-        i=0
-        while lines[i] != 'OK' and i < len(lines)-1 :       # La 2ième condition protège contre les réponses incomplètes (reset du player)
-            print("line : ", lines[i]); 
-            fields = lines[i].split(':',1);                 # 1 seul découpage au premier ":" rencontré sur la ligne
-            dict_answer[fields[0]] = fields[1].lstrip()     # supprimer les espaces à gauche et sauvegarder dans le dictionnaire
-            i += 1
+        for line in lines:
+            if line == 'OK' or not line:
+                break
+            if ':' not in line:
+                continue
+            key, value = line.split(':', 1)
+            dict_answer[key] = value.lstrip()
 
         # Remplissage du dictionnaire avec les champs manquants
         if command == 'status\n' :
-            print("status");
             for key, value in mpd_status_ref.items() :
                 dict_answer[key] = dict_answer.get(key, value)
         else :
-            print("currentsong");
             for key, value in mpd_currentsong_ref.items() :
                 dict_answer[key] = dict_answer.get(key, value)
         
@@ -153,7 +152,7 @@ class MpdServer() :
             response = self.socket.recv(self.bufsize).decode("Utf8")
             self.socket_status = 'OK'
             return response
-        except socket.error as e:
+        except OSError as e:
             # print('MpdServer.request - socket error')
             # print(e)
             self.socket_status = 'KO'

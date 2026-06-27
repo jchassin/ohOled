@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ----------------------------------------------------------------------------
 # AUDIOPHONICS - RASPDAC MINI - Gestion de l'écran OLED
@@ -87,6 +87,7 @@
 import sys
 import os
 import time
+import traceback
 from datetime import datetime
 
 from raspdac_oled_request_os import RaspdacIP
@@ -348,12 +349,12 @@ try:
         loop_period.adjust()
 
 # Sortie de la boucle principale en cas d'erreur            
-except Exception as e:
-    raise
-    exc_type, exc_obj, exc_tb = sys.exc_info()
-    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-    print('Exception - Main Module')
-    print(exc_type, fname, exc_tb.tb_lineno)
+except KeyboardInterrupt:
+    pass
+except Exception:
+    print('Exception - Main Module', file=sys.stderr)
+    traceback.print_exc()
+    sys.exit(1)
 
 
 

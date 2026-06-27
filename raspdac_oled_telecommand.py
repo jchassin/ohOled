@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ----------------------------------------------------------------------------
 # AUDIOPHONICS - RASPDAC MINI - Gestion de l'écran OLED
@@ -20,7 +20,7 @@
 import socket
 import time
 from raspdac_oled_request_os import shell_command
-SOCKPATH = "/var/run/lirc/lircd"
+SOCKPATHS = ("/var/run/lirc/lircd", "/run/lirc/lircd")
 
 # ----------------------------------------------------------------------------
 # Gestion de la télécommande infrarouge
@@ -28,19 +28,33 @@ class InfraRedTelecommand() :
     # Initialisations
     def __init__(self) :   
         self.bufsize = 128                  # Taille du buffer de réception
-        self.socket = socket.socket(        # Construction du socket
-            socket.AF_UNIX,                 # famille d'adresses de type UNIX
-            socket.SOCK_STREAM )            # type du socket = stream
-        self.socket.setblocking(0)          # mode non bloquant
-        self.socket.connect(SOCKPATH)
+        self.socket = None
+        for sockpath in SOCKPATHS:
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.connect(sockpath)
+                sock.setblocking(False)
+            except OSError:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+                continue
+            self.socket = sock
+            break
         self.key_time = float(time.time())  # mémorisation de l'instant de l'appui d'une touche
         self.key_quick_gap = 0.3            # intervalle de temps entre deux touches caractérisant des apppuis rapides
 
     # Récupération du code de touche (lorsqu'une touche est activée sur la télécommande)
     def get_key(self):
+        if self.socket is None:
+            return 'NO_KEY', 'LOW'
         try :
-            data = self.socket.recv(self.bufsize).decode("Utf8")
-            key = data.split(' ')[2]
+            data = self.socket.recv(self.bufsize).decode("Utf8", errors="replace")
+            parts = data.split()
+            if len(parts) < 3:
+                return 'NO_KEY', 'LOW'
+            key = parts[2]
             key_trigger = float(time.time())
             delta = key_trigger - self.key_time
             if (delta < self.key_quick_gap) :
@@ -49,7 +63,7 @@ class InfraRedTelecommand() :
                 speed = 'LOW'
             self.key_time = key_trigger
             return key, speed
-        except socket.error as e:           # pas de touche activée sur la télécommande
+        except OSError as e:           # pas de touche activée sur la télécommande
             return 'NO_KEY', 'LOW'
 
     # Action déclenchée lorsqu'une touche est activée sur la télécommande
@@ -84,7 +98,7 @@ class InfraRedTelecommand() :
                 control = menu['controls_list'][menu['selected_control']]
                 value = menu['items_list'][menu['selected_control']][menu['selected_item']]
                 # Commande à envoyer au pilote ALSA pour valider l'item
-                cmd = "amixer sset -c 0 '{control}' '{value}'".format(control=control,value=value)
+                cmd = ['amixer', 'sset', '-c', '0', control, value]
             else :
                 pass
         # Cas où la page 'MENU' est non activée

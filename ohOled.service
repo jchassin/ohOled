@@ -1,12 +1,17 @@
 [Unit]
 Description=OLED Display Service
+After=network-online.target mpd.service lircd.service
+Wants=network-online.target
 
 [Service]
-ExecStartPre=/bin/sleep 10
-ExecStart=/usr/bin/python3 /home/jean/openhome_player/ohOled/raspdac_oled_main.py
-StandardOutput=null
 Type=simple
+WorkingDirectory=/opt/ohOled
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/python3 /opt/ohOled/raspdac_oled_main.py
 Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

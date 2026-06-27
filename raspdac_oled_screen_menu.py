@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ----------------------------------------------------------------------------
 # AUDIOPHONICS - RASPDAC MINI - Gestion de l'écran OLED
@@ -16,6 +16,7 @@
 #   -> raspdac_oled_screen_frames.py (définition des trames des pages)
 #   -> fonts : répertoire des polices de caractères utilisées pour l'affichage
 # ----------------------------------------------------------------------------
+import re
 import time
 from raspdac_oled_request_os import shell_command
 
@@ -124,8 +125,7 @@ class AlsaMixer() :
             'INPUT' :   { 'Control' : shell_controls_list[2],   'Items' : input_list,   'Item0' : '',   'index_Item0' : 0,  'Items_number' : len(input_list) }
             }
         # Initialisation du control 'MUTE' (nécessaire pour contourner bug AlsaMixer)
-        cmd = "amixer sset -c 0 '{control}' '{value}'".format(control='Digital',value='unmute')
-        shell_command(cmd)
+        shell_command(['amixer', 'sset', '-c', '0', 'Digital', 'unmute'])
         
         # Lecture et sauvegarde de la configuration du pilote ALSA (pour la carte ES9038Q2M)
         self.time_mixer = float(time.time())
@@ -135,29 +135,24 @@ class AlsaMixer() :
     def getconfig(self, period=0) :
         time_now = float(time.time())
         if (time_now - self.time_mixer >= period) :
-            cmd = "amixer -c 0"
-            response = shell_command(cmd)
-            lines = response.split('\n')
+            # Les anciennes versions supposaient des numéros de lignes fixes dans
+            # `amixer -c 0`. C'est fragile selon les versions ALSA. On interroge
+            # chaque contrôle explicitement et on parse Item0 / [on|off].
+            input_value = self._read_enum_control('I2S/SPDIF Select')
+            if input_value in self.config['INPUT']['Items']:
+                self.config['INPUT']['Item0'] = input_value
+                self.config['INPUT']['index_Item0'] = self.config['INPUT']['Items'].index(input_value)
 
-            # récupération de l'entrée ('INPUT')
-            input = lines[3].split("'")[1]
-            self.config['INPUT']['Item0'] = input
-            self.config['INPUT']['index_Item0'] = self.config['INPUT']['Items'].index(input)
+            sound = self._read_switch_control('Digital')
+            if sound:
+                mute_status = 'unmute' if sound == 'on' else 'mute'
+                self.config['MUTE']['Item0'] = mute_status
+                self.config['MUTE']['index_Item0'] = self.config['MUTE']['Items'].index(mute_status)
 
-            # récupération de l'état du 'mute' ('MUTE')
-            words = lines[8].split("[")
-            sound = words[3][:-1]
-            if sound == 'on' :              # sortie son activée
-                mute_status = 'unmute'
-            else :                          # sortie son désactivée
-                mute_status = 'mute'
-            self.config['MUTE']['Item0'] = mute_status
-            self.config['MUTE']['index_Item0'] = self.config['MUTE']['Items'].index(mute_status)
-
-            # récupération du filtre FIR ('FILTER')
-            filter = lines[12].split("'")[1]
-            self.config['FILTER']['Item0'] = filter
-            self.config['FILTER']['index_Item0'] = self.config['FILTER']['Items'].index(filter)
+            filter_value = self._read_enum_control('FIR Filter Type')
+            if filter_value in self.config['FILTER']['Items']:
+                self.config['FILTER']['Item0'] = filter_value
+                self.config['FILTER']['index_Item0'] = self.config['FILTER']['Items'].index(filter_value)
 
             self.time_mixer = time_now
 
@@ -165,6 +160,17 @@ class AlsaMixer() :
             # print("getmixer : ",delta)
             
         return self.config
+
+
+    def _read_enum_control(self, control):
+        response = shell_command(['amixer', 'sget', '-c', '0', control])
+        match = re.search(r"Item0:\s*'([^']+)'", response)
+        return match.group(1) if match else ''
+
+    def _read_switch_control(self, control):
+        response = shell_command(['amixer', 'sget', '-c', '0', control])
+        matches = re.findall(r"\[(on|off)\]", response)
+        return matches[-1] if matches else ''
 
     # Méthode permettant de récupérer un paramètre du pilote ALSA sans passer par une commande Shell
     # -> utile pour optimiser le temps d'éxécution
