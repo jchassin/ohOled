@@ -42,3 +42,4 @@ journalctl -u ohOled.service -f
 ```
 
 Debian Trixie empaquette `python3-luma.oled` en version 3.10.0-1, donc l’installation via `apt` reste cohérente avec la distribution.
+Essai
